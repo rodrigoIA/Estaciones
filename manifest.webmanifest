@@ -1,0 +1,16 @@
+{
+  "name": "Sol, Tierra y estaciones — Santiago 2026",
+  "short_name": "Sol Santiago",
+  "description": "Simulador interactivo del Sol, la Tierra, las estaciones y los horarios solares para Santiago de Chile.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#07101f",
+  "theme_color": "#07101f",
+  "lang": "es-CL",
+  "icons": [
+    {"src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+    {"src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}
+  ]
+}
