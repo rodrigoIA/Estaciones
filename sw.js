@@ -1,4 +1,4 @@
-const CACHE = 'sol-santiago-v3';
+const CACHE = 'sol-santiago-v4';
 const ENHANCER = './js/webgl-enhance.js';
 const ASSETS = [
   './',
