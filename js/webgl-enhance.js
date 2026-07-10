@@ -45,13 +45,14 @@
     return [Math.cos(lat) * Math.cos(lon), Math.sin(lat), Math.cos(lat) * Math.sin(lon)];
   }
 
+  // Camera state: free orbit camera around a movable target point.
   const camera = {
     yaw: -0.85,
     pitch: 0.42,
     dist: 8.4,
     target: [0, 0, 0],
-    focusMode: 'system',
-    dragMode: 'orbit',
+    focusMode: 'system', // sun | earth | system | free
+    dragMode: 'orbit',   // orbit | pan
   };
 
   let drag = null;
@@ -62,6 +63,7 @@
     if (camera.focusMode === 'sun') camera.target = [0, 0, 0];
     else if (camera.focusMode === 'earth') camera.target = ep;
     else if (camera.focusMode === 'system') camera.target = mul(ep, 0.5);
+    // free => keep target as user left it
   }
 
   function resize() {
@@ -74,13 +76,13 @@
   window.addEventListener('resize', resize);
   resize();
 
+  // UI helpers injected into existing panel
   const style = document.createElement('style');
   style.textContent = `
     .webgl-extra{margin-top:10px;padding-top:10px;border-top:1px solid #d8e4ec}
     .webgl-extra .row{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
     .webgl-extra button{padding:9px 11px;min-height:40px;font-size:13px}
     .webgl-chip{display:inline-flex;align-items:center;padding:4px 8px;border-radius:999px;background:#eef5fb;border:1px solid #d4e3ef;font-size:12px;font-weight:700;color:#264256;margin-top:8px}
-    .webgl-kbd{background:#fff;border:1px solid #c9d8e4;border-radius:6px;padding:1px 5px;font-family:ui-monospace,Consolas,monospace;font-size:12px}
   `;
   document.head.appendChild(style);
 
@@ -89,7 +91,7 @@
     const box = document.createElement('div');
     box.className = 'webgl-extra';
     box.innerHTML = `
-      <div class="small"><b>Controles:</b> arrastra en modo orbitar para girar la cámara. Cambia a trasladar vista para mover el punto de observación por el espacio. En móvil toca un modo y luego arrastra.</div>
+      <div class="small"><b>Controles:</b> mouse arrastra para orbitar; rueda = zoom; modo “Trasladar vista” + arrastrar = mover el foco. Teclado: O orbitar, P trasladar, 1 sistema, 2 Sol, 3 Tierra, 4 libre, R reset, flechas rotan, Shift+flechas trasladan, +/− zoom, [/ ] fecha, ,/. hora. En móvil, toca un modo y luego arrastra.</div>
       <div class="row" id="cameraModeRow">
         <button type="button" id="camModeOrbit">Orbitar</button>
         <button type="button" id="camModePan">Trasladar vista</button>
@@ -103,12 +105,6 @@
         <button type="button" id="focusFree">Foco libre</button>
       </div>
       <div class="webgl-chip" id="cameraStatus">Modo: orbitar · Foco: sistema</div>
-      <details class="small" style="margin-top:8px">
-        <summary><b>Comandos teclado/mouse</b></summary>
-        <p><span class="webgl-kbd">Arrastrar</span>: orbitar cámara · <span class="webgl-kbd">Trasladar vista</span> + arrastrar: pan 3D · arrastrar cerca de la Tierra: mover fecha orbital · rueda: zoom.</p>
-        <p><span class="webgl-kbd">O</span> orbitar · <span class="webgl-kbd">P</span> trasladar · <span class="webgl-kbd">1</span> sistema · <span class="webgl-kbd">2</span> Sol · <span class="webgl-kbd">3</span> Tierra · <span class="webgl-kbd">4</span> libre · <span class="webgl-kbd">R</span> reset.</p>
-        <p><span class="webgl-kbd">←/→/↑/↓</span> rotar vista · <span class="webgl-kbd">Shift</span> + flechas: trasladar vista · <span class="webgl-kbd">+/-</span> zoom · <span class="webgl-kbd">[/]</span> fecha orbital · <span class="webgl-kbd">, / .</span> rotación diaria.</p>
-      </details>
     `;
     panel.appendChild(box);
     modeButtons = [box.querySelector('#camModeOrbit'), box.querySelector('#camModePan')];
@@ -141,6 +137,7 @@
     if (status) status.textContent = `Modo: ${camera.dragMode === 'orbit' ? 'orbitar' : 'trasladar vista'} · Foco: ${camera.focusMode === 'system' ? 'sistema' : camera.focusMode === 'sun' ? 'Sol' : camera.focusMode === 'earth' ? 'Tierra' : 'libre'}`;
   }
 
+  // Matrix math
   function m4() { return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]; }
   function mul4(a, b) {
     const o = new Array(16);
@@ -194,9 +191,17 @@
     ]);
     const view = lookAt(eye, camera.target, [0, 1, 0]);
     const proj = persp(44 * DEG, canvas.width / canvas.height, 0.1, 80);
-    return { eye, view, proj, vp: mul4(proj, view), right: norm([view[0], view[4], view[8]]), up: norm([view[1], view[5], view[9]]) };
+    return {
+      eye,
+      view,
+      proj,
+      vp: mul4(proj, view),
+      right: norm([view[0], view[4], view[8]]),
+      up: norm([view[1], view[5], view[9]]),
+    };
   }
 
+  // WebGL init helpers
   function shader(type, src) {
     const s = gl.createShader(type);
     gl.shaderSource(s, src);
@@ -323,7 +328,9 @@
   sphere.uvB = buffer(sphere.uv);
   sphere.idxB = buffer(sphere.idx, gl.ELEMENT_ARRAY_BUFFER);
 
-  function lineBuffer(points) { return { buf: buffer(new Float32Array(points.flat())), count: points.length }; }
+  function lineBuffer(points) {
+    return { buf: buffer(new Float32Array(points.flat())), count: points.length };
+  }
   const orbitPoints = [];
   for (let i = 0; i <= 360; i++) {
     const a = i / 360 * 2 * Math.PI;
@@ -335,7 +342,10 @@
   const tropicNBuffer = lineBuffer(Array.from({ length: 241 }, (_, i) => surfVec(23.44, -180 + i * 360 / 240)));
   const tropicSBuffer = lineBuffer(Array.from({ length: 241 }, (_, i) => surfVec(-23.44, -180 + i * 360 / 240)));
   const pointBuffer = buffer(new Float32Array([0, 0, 0]));
-  function dynamicLatBuffer(latDeg) { return lineBuffer(Array.from({ length: 241 }, (_, i) => surfVec(latDeg, -180 + i * 360 / 240))); }
+
+  function dynamicLatBuffer(latDeg) {
+    return lineBuffer(Array.from({ length: 241 }, (_, i) => surfVec(latDeg, -180 + i * 360 / 240)));
+  }
 
   function textureFromContinents() {
     const cnv = document.createElement('canvas');
@@ -355,8 +365,6 @@
       c.beginPath(); c.moveTo(0, y); c.lineTo(cnv.width, y); c.stroke();
     }
     const xy = (lat, lon) => [(lon + 180) / 360 * cnv.width, (90 - lat) / 180 * cnv.height];
-    c.shadowColor = 'rgba(0,0,0,.22)';
-    c.shadowBlur = 2;
     c.fillStyle = '#63a14a';
     c.strokeStyle = '#2f5f24';
     c.lineWidth = 2.2;
@@ -366,15 +374,16 @@
         const q = xy(p[0], p[1]);
         if (i) c.lineTo(q[0], q[1]); else c.moveTo(q[0], q[1]);
       });
-      c.closePath(); c.fill(); c.stroke();
+      c.closePath();
+      c.fill();
+      c.stroke();
     });
-    c.shadowBlur = 0;
-    c.fillStyle = 'rgba(255,255,255,.65)';
-    c.fillRect(0, 0, cnv.width, 52);
-    c.fillRect(0, cnv.height - 58, cnv.width, 58);
+    // Chile marker baked into texture for visibility.
     const ch = xy(-33.45, -70.66);
-    c.fillStyle = '#ff1744'; c.beginPath(); c.arc(ch[0], ch[1], 8, 0, Math.PI * 2); c.fill();
+    c.fillStyle = '#ff1744';
+    c.beginPath(); c.arc(ch[0], ch[1], 8, 0, Math.PI * 2); c.fill();
     c.strokeStyle = '#ffffff'; c.lineWidth = 2.5; c.stroke();
+
     const tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
@@ -387,7 +396,6 @@
   const earthTex = textureFromContinents();
 
   gl.enable(gl.DEPTH_TEST);
-  gl.depthFunc(gl.LEQUAL);
   gl.enable(gl.CULL_FACE);
   gl.clearColor(0.03, 0.06, 0.12, 1.0);
 
@@ -398,10 +406,21 @@
     gl.enableVertexAttribArray(loc);
     gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
   }
-  function setMat(prog, name, m) { const loc = gl.getUniformLocation(prog, name); if (loc) gl.uniformMatrix4fv(loc, false, new Float32Array(m)); }
-  function setVec3(prog, name, v) { const loc = gl.getUniformLocation(prog, name); if (loc) gl.uniform3fv(loc, new Float32Array(v)); }
-  function setFloat(prog, name, v) { const loc = gl.getUniformLocation(prog, name); if (loc) gl.uniform1f(loc, v); }
-  function setColor(v) { gl.uniform4fv(gl.getUniformLocation(colorProgram, 'uColor'), new Float32Array(v)); }
+  function setMat(prog, name, m) {
+    const loc = gl.getUniformLocation(prog, name);
+    if (loc) gl.uniformMatrix4fv(loc, false, new Float32Array(m));
+  }
+  function setVec3(prog, name, v) {
+    const loc = gl.getUniformLocation(prog, name);
+    if (loc) gl.uniform3fv(loc, new Float32Array(v));
+  }
+  function setFloat(prog, name, v) {
+    const loc = gl.getUniformLocation(prog, name);
+    if (loc) gl.uniform1f(loc, v);
+  }
+  function setColor(v) {
+    gl.uniform4fv(gl.getUniformLocation(colorProgram, 'uColor'), new Float32Array(v));
+  }
   function drawLine(bufObj, model, vp, color, width = 1) {
     gl.useProgram(colorProgram);
     useAttr(colorProgram, 'aPos', bufObj.buf, 3);
@@ -421,7 +440,13 @@
     setColor(color);
     gl.drawArrays(gl.POINTS, 0, 1);
   }
-  function drawEarth(model, vp, lightWorld, subLatRad) {
+  function drawTempLine(points, vp, color) {
+    const tmp = lineBuffer(points);
+    drawLine(tmp, m4(), vp, color, 1);
+    gl.deleteBuffer(tmp.buf);
+  }
+
+  function drawEarth(ep, model, vp, lightWorld, subLatRad) {
     gl.useProgram(earthProgram);
     useAttr(earthProgram, 'aPos', sphere.posB, 3);
     useAttr(earthProgram, 'aUv', sphere.uvB, 2);
@@ -442,7 +467,7 @@
     const row = byDoy[doy];
     const ep = earthPos(doy);
     const cam = cameraData();
-    const lightWorld = norm(mul(ep, -1));
+    const lightWorld = norm(ep); // shader normal convention: illuminated hemisphere faces the Sun-side of the orbit
     const model = earthModel(doy, hour);
     const inverse = inverseDailyTilt(hour);
     const lightLocal = norm(transformVec(inverse, lightWorld));
@@ -451,9 +476,28 @@
 
     resize();
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    drawLine(orbitBuffer, m4(), cam.vp, [0.62, 0.83, 1.0, 0.55], 1);
-    [[79, [0.96, 0.75, 0.38, 1]], [172, [0.55, 0.84, 1, 1]], [265, [0.70, 1, 0.38, 1]], [355, [0.45, 0.92, 0.48, 1]]].forEach(([d, col]) => drawPoint(earthPos(d), cam.vp, col, 9));
 
+    // Orbit
+    drawLine(orbitBuffer, m4(), cam.vp, [0.62, 0.83, 1.0, 0.55], 1);
+    [[79, [0.96, 0.75, 0.38, 1]], [172, [0.55, 0.84, 1, 1]], [265, [0.70, 1, 0.38, 1]], [355, [0.45, 0.92, 0.48, 1]]]
+      .forEach(([d, col]) => drawPoint(earthPos(d), cam.vp, col, 9));
+
+    // Light is now represented by the shader gradient on Earth; no discrete ray lines.
+    let u = norm(cross(norm(ep), [0, 1, 0]));
+    if (len(u) < 0.01) u = [1, 0, 0];
+    const v = norm(cross(norm(ep), u));
+    gl.disable(gl.DEPTH_TEST);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+    for (let i = 0; i < 0; i++) {
+      const a = (i / 16) * 2 * Math.PI;
+      const off = add(mul(u, Math.cos(a) * EARTH_R * 0.9), mul(v, Math.sin(a) * EARTH_R * 0.9));
+      drawTempLine([mul(off, 0.10), add(ep, off)], cam.vp, [1.0, 0.84, 0.18, 0.15]);
+    }
+    gl.disable(gl.BLEND);
+    gl.enable(gl.DEPTH_TEST);
+
+    // Sun
     gl.useProgram(sunProgram);
     useAttr(sunProgram, 'aPos', sphere.posB, 3);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sphere.idxB);
@@ -461,17 +505,26 @@
     setMat(sunProgram, 'uVP', cam.vp);
     gl.drawElements(gl.TRIANGLES, sphere.count, gl.UNSIGNED_SHORT, 0);
 
-    drawEarth(model, cam.vp, lightWorld, subLatRad);
+    // Earth
+    drawEarth(ep, model, cam.vp, lightWorld, subLatRad);
+
+    // Guides on the Earth
     drawLine(equatorBuffer, model, cam.vp, [1, 1, 1, 0.55], 1);
     drawLine(row.declination >= 0 ? tropicNBuffer : tropicSBuffer, model, cam.vp, [1, 0.90, 0.18, 0.65], 1);
     const directLat = dynamicLatBuffer(subLatDeg);
     drawLine(directLat, model, cam.vp, [1, 0.92, 0.36, 0.98], 3);
     gl.deleteBuffer(directLat.buf);
     drawLine(axisBuffer, model, cam.vp, [1, 1, 1, 0.95], 2);
-    drawPoint(transformPoint(model, surfVec(-33.45, -70.66)), cam.vp, [1, 0.06, 0.20, 1], 9);
 
+    // Chile marker projected in 3D.
+    const chile = transformPoint(model, surfVec(-33.45, -70.66));
+    drawPoint(chile, cam.vp, [1, 0.06, 0.20, 1], 9);
+
+    // Project Earth for interaction hit area.
     const projected = projectPoint(cam.vp, ep);
     earthScreen = { x: projected.x, y: projected.y, r: Math.max(55, canvas.clientWidth / camera.dist * 0.16) };
+
+    // Readout panel
     const hemi = row.declination < -0.4 ? 'sur' : (row.declination > 0.4 ? 'norte' : 'ninguno');
     dayLab.textContent = `${fmtDate(row.date)} · día ${row.doy}`;
     hourLab.textContent = `${(+hourS.value).toFixed(2)} h`;
@@ -479,41 +532,73 @@
     const ssPct = clamp(row.sunsetDec / 24 * 100, 0, 100);
     const widthPct = Math.max(0, ssPct - srPct);
     read.innerHTML = `<b>${fmtDate(row.date)} de 2026</b>
-      <div class="kv"><div>Estación en Chile</div><div>${row.season}</div><div>Salida del sol</div><div>${row.sunrise}</div><div>Puesta del sol</div><div>${row.sunset}</div><div>Duración del día</div><div>${row.daylight}</div><div>Hemisferio con más radiación</div><div>${hemi === 'ninguno' ? 'ninguno (equinoccio)' : hemi}</div><div>Latitud de rayos más directos</div><div>${subLatDeg.toFixed(1)}°</div><div>Motor visual</div><div>WebGL luz natural</div></div>
+      <div class="kv">
+        <div>Estación en Chile</div><div>${row.season}</div>
+        <div>Salida del sol</div><div>${row.sunrise}</div>
+        <div>Puesta del sol</div><div>${row.sunset}</div>
+        <div>Duración del día</div><div>${row.daylight}</div>
+        <div>Hemisferio con más radiación</div><div>${hemi === 'ninguno' ? 'ninguno (equinoccio)' : hemi}</div>
+        <div>Latitud de rayos más directos</div><div>${subLatDeg.toFixed(1)}°</div>
+        <div>Motor visual</div><div>WebGL mejorado</div>
+      </div>
       <div class="sunbar"><div class="mini" style="left:${srPct}%;width:${widthPct}%"></div></div>
       <div class="small2" style="display:flex;justify-content:space-between;margin-top:4px"><span>00:00</span><span>salida ${row.sunrise}</span><span>puesta ${row.sunset}</span><span>24:00</span></div>
-      <p class="small" style="margin:.65em 0 0">La zona nocturna queda tenue para que se vean continentes y forma. La línea brillante marca la latitud de rayos más directos; el degradé día/noche muestra el terminador.</p>`;
+      <p class="small" style="margin:.65em 0 0">La parte nocturna queda visible de forma tenue para que se aprecien continentes y forma del planeta. La franja cálida indica dónde llega más radiación según la época del año y la inclinación del eje.</p>`;
   }
 
+  // Replace original renderer.
   drawSystem = drawScene;
-  window.__estacionesWebGL = { draw: drawScene, version: 'v3-light-camera-controls' };
+  window.__estacionesWebGL = { draw: drawScene, version: 'v2-light-camera' };
 
   function setView(which) {
-    if (which === 'top') { camera.yaw = 0; camera.pitch = 1.26; camera.dist = 8.6; camera.focusMode = 'system'; }
-    else if (which === 'side') { camera.yaw = -Math.PI / 2; camera.pitch = 0.06; camera.dist = 8.0; camera.focusMode = 'system'; }
-    else if (which === 'free') { camera.yaw = -0.85; camera.pitch = 0.42; camera.dist = 8.4; camera.focusMode = 'free'; }
-    else if (which === 'radiation') { camera.yaw = -1.10; camera.pitch = 0.52; camera.dist = 4.8; camera.focusMode = 'earth'; }
-    else if (which === 'chile') { dayS.value = 172; hourS.value = 12; cycleAnimIndex = cycleIndexByDoy[172] || 0; camera.yaw = -0.18; camera.pitch = 0.30; camera.dist = 5.0; camera.focusMode = 'earth'; }
-    updateFocusTarget(); refreshCameraButtons(); redraw();
+    if (which === 'top') {
+      camera.yaw = 0; camera.pitch = 1.26; camera.dist = 8.6; camera.focusMode = 'system';
+    } else if (which === 'side') {
+      camera.yaw = -Math.PI / 2; camera.pitch = 0.06; camera.dist = 8.0; camera.focusMode = 'system';
+    } else if (which === 'free') {
+      camera.yaw = -0.85; camera.pitch = 0.42; camera.dist = 8.4; camera.focusMode = 'free';
+    } else if (which === 'radiation') {
+      camera.yaw = -1.10; camera.pitch = 0.52; camera.dist = 4.8; camera.focusMode = 'earth';
+    } else if (which === 'chile') {
+      dayS.value = 172; hourS.value = 12; cycleAnimIndex = cycleIndexByDoy[172] || 0;
+      camera.yaw = -0.18; camera.pitch = 0.30; camera.dist = 5.0; camera.focusMode = 'earth';
+    }
+    updateFocusTarget();
+    refreshCameraButtons();
+    redraw();
   }
 
+  // Canvas interaction
   function dragStartAction(x, y) {
     const nearEarth = Math.hypot(x - earthScreen.x, y - earthScreen.y) < Math.max(76, earthScreen.r * 1.2);
     if (camera.dragMode === 'pan') return 'pan';
     if (nearEarth) return 'earth';
     return 'orbit';
   }
+
   canvas.addEventListener('pointerdown', e => {
     const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left, y = e.clientY - rect.top;
-    drag = { x, y, action: dragStartAction(x, y), startYaw: camera.yaw, startPitch: camera.pitch, startTarget: [...camera.target], startDoy: +dayS.value };
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    drag = {
+      x, y,
+      action: dragStartAction(x, y),
+      startYaw: camera.yaw,
+      startPitch: camera.pitch,
+      startTarget: [...camera.target],
+      startDoy: +dayS.value,
+    };
     canvas.setPointerCapture(e.pointerId);
   });
+
   canvas.addEventListener('pointermove', e => {
     if (!drag) return;
     const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left, y = e.clientY - rect.top;
-    const dx = x - drag.x, dy = y - drag.y;
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const dx = x - drag.x;
+    const dy = y - drag.y;
+
     if (drag.action === 'earth') {
       const currentIndex = cycleIndexByDoy[drag.startDoy] || 0;
       const nextIndex = (Math.round(currentIndex + dx * 0.45) % cycleRows.length + cycleRows.length) % cycleRows.length;
@@ -528,41 +613,19 @@
       camera.yaw = drag.startYaw + dx * 0.0085;
       camera.pitch = clamp(drag.startPitch + dy * 0.0065, -1.36, 1.36);
     }
-    refreshCameraButtons(); redraw();
+    refreshCameraButtons();
+    redraw();
   });
+
   canvas.addEventListener('pointerup', () => { drag = null; });
   canvas.addEventListener('pointercancel', () => { drag = null; });
-  canvas.addEventListener('wheel', e => { e.preventDefault(); camera.dist = clamp(camera.dist * (e.deltaY > 0 ? 1.08 : 0.92), 3.4, 20); redraw(); }, { passive: false });
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    camera.dist = clamp(camera.dist * (e.deltaY > 0 ? 1.08 : 0.92), 3.4, 20);
+    redraw();
+  }, { passive: false });
 
-  document.addEventListener('keydown', e => {
-    const active = document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName);
-    if (active) return;
-    let handled = true;
-    const panStep = camera.dist * 0.055;
-    const cam = cameraData();
-    switch (e.key) {
-      case 'o': case 'O': camera.dragMode = 'orbit'; break;
-      case 'p': case 'P': camera.dragMode = 'pan'; break;
-      case '1': camera.focusMode = 'system'; updateFocusTarget(); break;
-      case '2': camera.focusMode = 'sun'; updateFocusTarget(); break;
-      case '3': camera.focusMode = 'earth'; updateFocusTarget(); break;
-      case '4': camera.focusMode = 'free'; break;
-      case 'r': case 'R': camera.yaw = -0.85; camera.pitch = 0.42; camera.dist = 8.4; camera.focusMode = 'system'; updateFocusTarget(); break;
-      case '+': case '=': camera.dist = clamp(camera.dist * 0.90, 3.4, 20); break;
-      case '-': case '_': camera.dist = clamp(camera.dist * 1.10, 3.4, 20); break;
-      case 'ArrowLeft': if (e.shiftKey) { camera.focusMode = 'free'; camera.target = add(camera.target, mul(cam.right, -panStep)); } else camera.yaw -= 0.08; break;
-      case 'ArrowRight': if (e.shiftKey) { camera.focusMode = 'free'; camera.target = add(camera.target, mul(cam.right, panStep)); } else camera.yaw += 0.08; break;
-      case 'ArrowUp': if (e.shiftKey) { camera.focusMode = 'free'; camera.target = add(camera.target, mul(cam.up, panStep)); } else camera.pitch = clamp(camera.pitch - 0.06, -1.36, 1.36); break;
-      case 'ArrowDown': if (e.shiftKey) { camera.focusMode = 'free'; camera.target = add(camera.target, mul(cam.up, -panStep)); } else camera.pitch = clamp(camera.pitch + 0.06, -1.36, 1.36); break;
-      case '[': dayS.value = cycleRows[(cycleIndexByDoy[+dayS.value] - 1 + cycleRows.length) % cycleRows.length].doy; break;
-      case ']': dayS.value = cycleRows[(cycleIndexByDoy[+dayS.value] + 1) % cycleRows.length].doy; break;
-      case ',': hourS.value = Math.max(0, +hourS.value - 0.25); break;
-      case '.': hourS.value = Math.min(24, +hourS.value + 0.25); break;
-      default: handled = false;
-    }
-    if (handled) { e.preventDefault(); refreshCameraButtons(); redraw(); }
-  });
-
+  // Rebind existing buttons to improved camera views
   const topBtn = document.getElementById('top'); if (topBtn) topBtn.onclick = () => setView('top');
   const sideBtn = document.getElementById('side'); if (sideBtn) sideBtn.onclick = () => setView('side');
   const freeBtn = document.getElementById('free'); if (freeBtn) freeBtn.onclick = () => setView('free');
@@ -570,7 +633,57 @@
   const chileBtn = document.getElementById('chile'); if (chileBtn) chileBtn.onclick = () => setView('chile');
   const yrBtn = document.getElementById('yr'); if (yrBtn) yrBtn.onclick = e => { playY = !playY; e.target.textContent = playY ? 'Pausar año' : 'Animar año'; e.target.setAttribute('aria-pressed', playY ? 'true' : 'false'); };
   const dyBtn = document.getElementById('dy'); if (dyBtn) dyBtn.onclick = e => { playD = !playD; e.target.textContent = playD ? 'Pausar día' : 'Animar día'; e.target.setAttribute('aria-pressed', playD ? 'true' : 'false'); };
+
   dayS.addEventListener('input', () => { cycleAnimIndex = cycleIndexByDoy[+dayS.value] || 0; if (camera.focusMode !== 'free') updateFocusTarget(); redraw(); });
   hourS.addEventListener('input', redraw);
-  refreshCameraButtons(); updateFocusTarget(); redraw();
+
+  window.addEventListener('keydown', e => {
+    const tag = document.activeElement && document.activeElement.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+    let used = true;
+    const stepPan = camera.dist * 0.055;
+    const cam = cameraData();
+
+    if (e.key === 'o' || e.key === 'O') camera.dragMode = 'orbit';
+    else if (e.key === 'p' || e.key === 'P') camera.dragMode = 'pan';
+    else if (e.key === '1') { camera.focusMode = 'system'; updateFocusTarget(); }
+    else if (e.key === '2') { camera.focusMode = 'sun'; updateFocusTarget(); }
+    else if (e.key === '3') { camera.focusMode = 'earth'; updateFocusTarget(); }
+    else if (e.key === '4') camera.focusMode = 'free';
+    else if (e.key === 'r' || e.key === 'R') { camera.yaw = -0.85; camera.pitch = 0.42; camera.dist = 8.4; camera.focusMode = 'system'; updateFocusTarget(); }
+    else if (e.key === '+' || e.key === '=') camera.dist = clamp(camera.dist * 0.90, 3.4, 20);
+    else if (e.key === '-' || e.key === '_') camera.dist = clamp(camera.dist * 1.10, 3.4, 20);
+    else if (e.key === '[') { const i = (cycleIndexByDoy[+dayS.value] || 0); const ni = (i - 1 + cycleRows.length) % cycleRows.length; dayS.value = cycleRows[ni].doy; cycleAnimIndex = ni; }
+    else if (e.key === ']') { const i = (cycleIndexByDoy[+dayS.value] || 0); const ni = (i + 1) % cycleRows.length; dayS.value = cycleRows[ni].doy; cycleAnimIndex = ni; }
+    else if (e.key === ',') hourS.value = ((+hourS.value + 23.75) % 24).toFixed(2);
+    else if (e.key === '.') hourS.value = ((+hourS.value + 0.25) % 24).toFixed(2);
+    else if (e.key === 'ArrowLeft') {
+      if (e.shiftKey) { camera.focusMode = 'free'; camera.target = add(camera.target, mul(cam.right, -stepPan)); }
+      else camera.yaw -= 0.08;
+    }
+    else if (e.key === 'ArrowRight') {
+      if (e.shiftKey) { camera.focusMode = 'free'; camera.target = add(camera.target, mul(cam.right, stepPan)); }
+      else camera.yaw += 0.08;
+    }
+    else if (e.key === 'ArrowUp') {
+      if (e.shiftKey) { camera.focusMode = 'free'; camera.target = add(camera.target, mul(cam.up, stepPan)); }
+      else camera.pitch = clamp(camera.pitch + 0.06, -1.36, 1.36);
+    }
+    else if (e.key === 'ArrowDown') {
+      if (e.shiftKey) { camera.focusMode = 'free'; camera.target = add(camera.target, mul(cam.up, -stepPan)); }
+      else camera.pitch = clamp(camera.pitch - 0.06, -1.36, 1.36);
+    }
+    else used = false;
+
+    if (used) {
+      e.preventDefault();
+      refreshCameraButtons();
+      redraw();
+    }
+  });
+
+  refreshCameraButtons();
+  updateFocusTarget();
+  redraw();
 })();
